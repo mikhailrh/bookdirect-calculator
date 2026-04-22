@@ -1,5 +1,7 @@
 # BookDirect.my — WhatsApp Revenue Recovery Calculator
 
+**Live:** https://bookdirect-calculator.vercel.app/
+
 A single-page sales tool for showing hotel owners and GMs how much revenue
 they're leaving on the table — both from OTA commissions on direct-intent
 guests, and from existing direct-booking demand that silently leaks through
@@ -8,9 +10,10 @@ clunky booking UX.
 ## Design constraint
 
 **The calculator never asks for sensitive revenue data.** Every input is either
-publicly available (room count, rack rate from Booking.com) or operational
-gut-feel (occupancy %, OTA share %, direct channel lift %). Total revenue is
-never shown or stored — all math derives from per-booking numbers.
+publicly visible (room count from the Booking.com listing) or operational
+gut-feel supplied by the owner (average room rate, occupancy %, OTA share %,
+direct channel lift %). Total revenue is never shown or stored — all math
+derives from per-booking numbers.
 
 ## Quick start
 
@@ -127,7 +130,7 @@ commission, 12.5% recovery, 8% discount, 5% BD commission, 7% direct lift.
 | Pool B uplift | RM 218.50 | ~RM 9,296 | ~**RM 111,546** |
 | **Combined**  | | | ~**RM 134,945** |
 
-## URL hash persistence
+## Sharing scenarios
 
 Hotel name and any input that differs from default is encoded in the URL hash:
 
@@ -138,10 +141,30 @@ Hotel name and any input that differs from default is encoded in the URL hash:
 Short keys: `rooms`, `alos`, `adr`, `occ`, `ota`, `otacomm`, `recov`, `disc`,
 `bdcomm`, `dlift`.
 
+A floating **"Copy share link w current inputs"** button (bottom-right on
+every viewport) copies the current URL — including hash state — to the
+clipboard, so a sales rep can dial in a property's numbers and share the
+live scenario in one click. Uses the modern Clipboard API with a legacy
+`execCommand` fallback for older browsers / insecure contexts.
+
+## In-app methodology
+
+The results card has a collapsible **"How this is calculated"** section
+that explains both pools, cites the research basis for the recovery and
+direct-lift defaults, and lists what the model deliberately excludes.
+Default-closed so it doesn't clutter the headline number, but available
+for any GM who wants to audit the assumptions live.
+
 ## Tech
 
 - Vite + React + TypeScript
 - Tailwind CSS with a warm paper palette (#EFE9DD page, white cards)
 - Radix primitives (Slider, Collapsible, Label) wrapped shadcn-style
 - Vitest for the math tests — no UI-level tests
-- No backend, no storage, no auth
+- Fully responsive: mobile-stacked comparison cards, tap-friendly info
+  tooltips, safe-area-aware floating CTA
+- Deployed to Vercel; no backend, no storage, no auth
+
+## Built by
+
+Mikhail — [mikhail@khalidascope.com](mailto:mikhail@khalidascope.com) · WhatsApp via [wa.link/z8g9m9](https://wa.link/z8g9m9)
