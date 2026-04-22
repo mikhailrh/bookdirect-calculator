@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --page-bg: #efe9dd;
+  --ink: #2c2825;
+  --accent: #1e3a5f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body {
+  background-color: var(--page-bg);
+}
+
+body {
+  color: var(--ink);
+  font-family: "DM Sans", "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
