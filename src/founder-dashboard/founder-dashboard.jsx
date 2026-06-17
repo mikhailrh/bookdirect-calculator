@@ -1,60 +1,107 @@
 import React, { useState, useEffect, useRef } from "react";
+import { supabase } from "../lib/supabaseClient";
+
+const FOUNDER_EMAIL = "kyle.razakharris@gmail.com";
+
+// Demo dataset shown until a founder logs in. createdAt is a ms epoch so the
+// day/week/month toggle has data spread across periods to filter.
+function makeDemoBookings() {
+  const now = Date.now();
+  const MIN = 60000, HR = 3600000, DAY = 86400000;
+  return [
+    // Today (sums to RM 380 commission — the headline default)
+    { id: 1, hotel: "Ara Dinawan Resort", code: "DNW", guest: "Sarah L.", nights: 3, total: 2400, commission: 120, createdAt: now - 2 * MIN, fresh: false },
+    { id: 2, hotel: "Ibis Kota Kinabalu", code: "IBS", guest: "Ahmad R.", nights: 2, total: 450, commission: 22.5, createdAt: now - 47 * MIN, fresh: false },
+    { id: 3, hotel: "Ara Dinawan Resort", code: "DNW", guest: "Michelle T.", nights: 5, total: 4200, commission: 210, createdAt: now - 3 * HR, fresh: false },
+    { id: 4, hotel: "Hilton Kota Kinabalu", code: "HLT", guest: "David C.", nights: 1, total: 550, commission: 27.5, createdAt: now - 5 * HR, fresh: false },
+    // Earlier this week
+    { id: 5, hotel: "Ara Dinawan Resort", code: "DNW", guest: "Wei Lin", nights: 4, total: 3200, commission: 160, createdAt: now - 2 * DAY, fresh: false },
+    { id: 6, hotel: "Ibis Kota Kinabalu", code: "IBS", guest: "Priya S.", nights: 2, total: 440, commission: 22, createdAt: now - 4 * DAY, fresh: false },
+    // Earlier this month
+    { id: 7, hotel: "Hilton Kota Kinabalu", code: "HLT", guest: "Raj P.", nights: 3, total: 1650, commission: 82.5, createdAt: now - 12 * DAY, fresh: false },
+    { id: 8, hotel: "Ara Dinawan Resort", code: "DNW", guest: "Nurul A.", nights: 6, total: 4800, commission: 240, createdAt: now - 20 * DAY, fresh: false },
+    // Older (shows up only in YTD)
+    { id: 9, hotel: "Ibis Kota Kinabalu", code: "IBS", guest: "Haziq M.", nights: 2, total: 460, commission: 23, createdAt: now - 45 * DAY, fresh: false },
+    { id: 10, hotel: "Hilton Kota Kinabalu", code: "HLT", guest: "Emma K.", nights: 2, total: 1100, commission: 55, createdAt: now - 70 * DAY, fresh: false },
+  ];
+}
 
 export default function FounderDashboard() {
-  const [bookings, setBookings] = useState([
-    {
-      id: 1,
-      hotel: "Ara Dinawan Resort",
-      code: "DNW",
-      guest: "Sarah L.",
-      nights: 3,
-      total: 2400,
-      commission: 120,
-      time: "2m ago",
-      fresh: false,
-    },
-    {
-      id: 2,
-      hotel: "Ibis Kota Kinabalu",
-      code: "IBS",
-      guest: "Ahmad R.",
-      nights: 2,
-      total: 450,
-      commission: 22.5,
-      time: "47m ago",
-      fresh: false,
-    },
-    {
-      id: 3,
-      hotel: "Ara Dinawan Resort",
-      code: "DNW",
-      guest: "Michelle T.",
-      nights: 5,
-      total: 4200,
-      commission: 210,
-      time: "3h ago",
-      fresh: false,
-    },
-    {
-      id: 4,
-      hotel: "Hilton Kota Kinabalu",
-      code: "HLT",
-      guest: "David C.",
-      nights: 1,
-      total: 550,
-      commission: 27.5,
-      time: "5h ago",
-      fresh: false,
-    },
-  ]);
+  const [bookings, setBookings] = useState(makeDemoBookings);
+
+  // Auth + live-data state. Demo data shows until a founder logs in.
+  const [live, setLive] = useState(false);
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [authMsg, setAuthMsg] = useState("");
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [email, setEmail] = useState(FOUNDER_EMAIL);
 
   const [pulse, setPulse] = useState(false);
   const [displayTotal, setDisplayTotal] = useState(380);
   const audioCtxRef = useRef(null);
 
-  const actualTotal = bookings.reduce((sum, b) => sum + b.commission, 0);
-  const bookingCount = bookings.length;
-  const gmv = bookings.reduce((sum, b) => sum + b.total, 0);
+  // Paginate the activity list so the page stops growing once it's long enough.
+  const PAGE_SIZE = 6;
+  const [page, setPage] = useState(0);
+
+  // Day / week / month period filter for the whole view.
+  const [period, setPeriod] = useState("day");
+
+  const startOf = (p) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    if (p === "week") {
+      const dow = (d.getDay() + 6) % 7; // Monday = start of week
+      d.setDate(d.getDate() - dow);
+    } else if (p === "month") {
+      d.setDate(1);
+    } else if (p === "year") {
+      d.setMonth(0, 1);
+    }
+    return d.getTime();
+  };
+
+  const timeAgo = (ts) => {
+    const diff = Date.now() - ts;
+    const MIN = 60000, HR = 3600000, DAY = 86400000;
+    if (diff < MIN) return "just now";
+    if (diff < HR) return `${Math.floor(diff / MIN)}m ago`;
+    if (diff < DAY) return `${Math.floor(diff / HR)}h ago`;
+    return `${Math.floor(diff / DAY)}d ago`;
+  };
+
+  // Headline + activity are scoped to the selected period.
+  const filtered = bookings.filter((b) => b.createdAt >= startOf(period));
+  const actualTotal = filtered.reduce((sum, b) => sum + b.commission, 0);
+  const bookingCount = filtered.length;
+  const gmv = filtered.reduce((sum, b) => sum + b.total, 0);
+  const avg = bookingCount ? actualTotal / bookingCount : 0;
+
+  const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageBookings = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
+  // Standing trend tiles — cumulative cuts, independent of the toggle.
+  const sumSince = (since) =>
+    bookings.filter((b) => b.createdAt >= since).reduce((s, b) => s + b.commission, 0);
+  const trend = [
+    { label: "This week", value: sumSince(startOf("week")), delta: "+12%" },
+    { label: "This month", value: sumSince(startOf("month")), delta: "+34%" },
+    { label: "YTD", value: sumSince(startOf("year")), delta: "+8%" },
+  ];
+
+  const periodLabel =
+    period === "day"
+      ? "Today's commission"
+      : period === "week"
+      ? "This week's commission"
+      : "This month's commission";
+
+  const headerDate = new Date().toLocaleDateString("en-MY", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 
   useEffect(() => {
     if (displayTotal === actualTotal) return;
@@ -72,6 +119,61 @@ export default function FounderDashboard() {
     }, 20);
     return () => clearInterval(interval);
   }, [actualTotal]);
+
+  // Load real metrics for the authenticated founder; fall back to demo otherwise.
+  useEffect(() => {
+    let active = true;
+    const apply = async (sess) => {
+      if (!active) return;
+      setSession(sess);
+      const em = sess?.user?.email?.toLowerCase();
+      if (sess && em === FOUNDER_EMAIL) {
+        setLoading(true);
+        setAuthMsg("");
+        const { data, error } = await supabase.functions.invoke("ops-metrics");
+        if (!active) return;
+        setLoading(false);
+        if (error) {
+          setAuthMsg("Couldn't load live data — showing demo.");
+          return;
+        }
+        setBookings(data.bookings || []);
+        setLive(true);
+        setLoginOpen(false);
+        setPage(0);
+      } else {
+        setLive(false);
+        setBookings(makeDemoBookings());
+      }
+    };
+    supabase.auth.getSession().then(({ data }) => apply(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) =>
+      apply(sess)
+    );
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  const sendMagicLink = async () => {
+    setAuthMsg("Sending…");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        emailRedirectTo: window.location.origin + "/ops",
+        shouldCreateUser: false,
+      },
+    });
+    setAuthMsg(error ? error.message : "Check your email for the login link.");
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setLive(false);
+    setBookings(makeDemoBookings());
+    setPage(0);
+  };
 
   const playKaChing = () => {
     try {
@@ -133,7 +235,7 @@ export default function FounderDashboard() {
       nights,
       total,
       commission,
-      time: "just now",
+      createdAt: Date.now(),
       fresh: true,
     };
 
@@ -141,6 +243,7 @@ export default function FounderDashboard() {
     setPulse(true);
     setTimeout(() => setPulse(false), 1200);
     setBookings((prev) => [newBooking, ...prev]);
+    setPage(0); // jump back to the newest page so the fresh booking is visible
     setTimeout(() => {
       setBookings((prev) =>
         prev.map((b) => (b.id === newBooking.id ? { ...b, fresh: false } : b))
@@ -154,6 +257,22 @@ export default function FounderDashboard() {
   const muted = "#8A7F6E";
   const line = "#E5DAC4";
   const green = "#0F9D58";
+
+  const pagerBtn = (disabled) => ({
+    width: "32px",
+    height: "32px",
+    borderRadius: "10px",
+    border: `1px solid ${line}`,
+    background: disabled ? "transparent" : creamDeep,
+    color: disabled ? line : navy,
+    fontSize: "16px",
+    lineHeight: 1,
+    cursor: disabled ? "default" : "pointer",
+    fontFamily: '"DM Sans", sans-serif',
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  });
 
   return (
     <div
@@ -211,34 +330,171 @@ export default function FounderDashboard() {
               fontWeight: 500,
             }}
           >
-            Ops · Wed 22 Apr
+            Ops · {headerDate}
           </div>
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 10px",
+              background: "rgba(15, 31, 63, 0.05)",
+              borderRadius: "100px",
+              fontSize: "11px",
+              fontWeight: 600,
+              letterSpacing: "0.3px",
+              color: navy,
+            }}
+          >
+            <div
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: live ? green : muted,
+                animation: live ? "breathe 2s ease-in-out infinite" : "none",
+              }}
+            />
+            {live ? "LIVE" : "DEMO"}
+          </div>
+          <button
+            onClick={() => (live ? logout() : setLoginOpen((v) => !v))}
+            style={{
+              padding: "6px 10px",
+              borderRadius: "100px",
+              border: `1px solid ${line}`,
+              background: "transparent",
+              color: navy,
+              fontSize: "11px",
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: '"DM Sans", sans-serif',
+            }}
+          >
+            {live ? "Log out" : "Log in"}
+          </button>
+        </div>
+      </div>
+
+      {loginOpen && !live && (
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            padding: "6px 10px",
-            background: "rgba(15, 31, 63, 0.05)",
-            borderRadius: "100px",
-            fontSize: "11px",
-            fontWeight: 600,
-            letterSpacing: "0.3px",
-            color: navy,
+            background: "#FFFBF2",
+            border: `1px solid ${line}`,
+            borderRadius: "16px",
+            padding: "14px",
+            marginBottom: "14px",
           }}
         >
           <div
             style={{
-              width: "6px",
-              height: "6px",
-              borderRadius: "50%",
-              background: green,
-              animation: "breathe 2s ease-in-out infinite",
+              fontSize: "11px",
+              color: muted,
+              fontWeight: 600,
+              marginBottom: "8px",
+              letterSpacing: "0.3px",
             }}
-          />
-          LIVE
+          >
+            Founder login — switch to real revenue
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@email.com"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: "9px 12px",
+                borderRadius: "10px",
+                border: `1px solid ${line}`,
+                background: cream,
+                fontSize: "13px",
+                color: navy,
+                fontFamily: '"DM Sans", sans-serif',
+              }}
+            />
+            <button
+              onClick={sendMagicLink}
+              style={{
+                padding: "9px 14px",
+                borderRadius: "10px",
+                border: "none",
+                background: navy,
+                color: cream,
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                fontFamily: '"DM Sans", sans-serif',
+              }}
+            >
+              Send link
+            </button>
+          </div>
+          {authMsg && (
+            <div style={{ fontSize: "11px", color: muted, marginTop: "8px" }}>
+              {authMsg}
+            </div>
+          )}
         </div>
+      )}
+
+      {loading && (
+        <div
+          style={{
+            fontSize: "11px",
+            color: muted,
+            textAlign: "center",
+            marginBottom: "10px",
+            letterSpacing: "0.3px",
+          }}
+        >
+          Loading live data…
+        </div>
+      )}
+
+      {/* Day / week / month period toggle */}
+      <div
+        style={{
+          display: "flex",
+          gap: "4px",
+          padding: "4px",
+          background: creamDeep,
+          borderRadius: "100px",
+          border: `1px solid ${line}`,
+          marginBottom: "14px",
+        }}
+      >
+        {["day", "week", "month"].map((p) => (
+          <button
+            key={p}
+            onClick={() => {
+              setPeriod(p);
+              setPage(0);
+            }}
+            style={{
+              flex: 1,
+              padding: "9px 0",
+              borderRadius: "100px",
+              border: "none",
+              background: period === p ? navy : "transparent",
+              color: period === p ? cream : muted,
+              fontSize: "12px",
+              fontWeight: 600,
+              letterSpacing: "0.3px",
+              textTransform: "capitalize",
+              fontFamily: '"DM Sans", sans-serif',
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+          >
+            {p}
+          </button>
+        ))}
       </div>
 
       <div
@@ -298,7 +554,7 @@ export default function FounderDashboard() {
               fontWeight: 600,
             }}
           >
-            Today's commission
+            {periodLabel}
           </div>
           <div
             style={{
@@ -422,7 +678,7 @@ export default function FounderDashboard() {
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              RM {(actualTotal / bookingCount).toFixed(0)}
+              RM {avg.toFixed(0)}
             </div>
           </div>
         </div>
@@ -436,11 +692,7 @@ export default function FounderDashboard() {
           marginBottom: "32px",
         }}
       >
-        {[
-          { label: "This week", value: "1,847", delta: "+12%" },
-          { label: "This month", value: "6,432", delta: "+34%" },
-          { label: "YTD", value: "24.1k", delta: "+8%" },
-        ].map((s) => (
+        {trend.map((s) => (
           <div
             key={s.label}
             style={{
@@ -474,7 +726,7 @@ export default function FounderDashboard() {
               <span style={{ fontSize: "10px", color: muted, marginRight: "2px" }}>
                 RM
               </span>
-              {s.value}
+              {s.value.toLocaleString("en-MY", { maximumFractionDigits: 0 })}
             </div>
             <div
               style={{
@@ -530,7 +782,20 @@ export default function FounderDashboard() {
             overflow: "hidden",
           }}
         >
-          {bookings.map((b, i) => (
+          {pageBookings.length === 0 && (
+            <div
+              style={{
+                padding: "28px 18px",
+                textAlign: "center",
+                fontSize: "12px",
+                color: muted,
+                fontWeight: 500,
+              }}
+            >
+              No bookings {period === "day" ? "today" : "this " + period} yet.
+            </div>
+          )}
+          {pageBookings.map((b, i) => (
             <div
               key={b.id}
               style={{
@@ -539,7 +804,7 @@ export default function FounderDashboard() {
                 justifyContent: "space-between",
                 alignItems: "center",
                 borderBottom:
-                  i < bookings.length - 1 ? `1px solid ${line}` : "none",
+                  i < pageBookings.length - 1 ? `1px solid ${line}` : "none",
                 background: b.fresh
                   ? "linear-gradient(90deg, rgba(15, 157, 88, 0.08), transparent)"
                   : "transparent",
@@ -595,7 +860,7 @@ export default function FounderDashboard() {
                       fontWeight: 500,
                     }}
                   >
-                    {b.guest} · {b.nights}n · {b.time}
+                    {b.guest} · {b.nights}n · {timeAgo(b.createdAt)}
                   </div>
                 </div>
               </div>
@@ -631,6 +896,46 @@ export default function FounderDashboard() {
             </div>
           ))}
         </div>
+
+        {pageCount > 1 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "14px",
+              marginTop: "14px",
+            }}
+          >
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              style={pagerBtn(page === 0)}
+              aria-label="Previous page"
+            >
+              ‹
+            </button>
+            <div
+              style={{
+                fontSize: "11px",
+                color: muted,
+                fontWeight: 600,
+                fontVariantNumeric: "tabular-nums",
+                letterSpacing: "0.5px",
+              }}
+            >
+              {page + 1} / {pageCount}
+            </div>
+            <button
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              disabled={page === pageCount - 1}
+              style={pagerBtn(page === pageCount - 1)}
+              aria-label="Next page"
+            >
+              ›
+            </button>
+          </div>
+        )}
       </div>
 
       <div
@@ -645,30 +950,32 @@ export default function FounderDashboard() {
         Yes Can Do Sdn Bhd · Private
       </div>
 
-      <button
-        onClick={simulateBooking}
-        style={{
-          position: "fixed",
-          bottom: "28px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          padding: "14px 28px",
-          background: navy,
-          border: "none",
-          borderRadius: "100px",
-          color: cream,
-          fontSize: "13px",
-          fontWeight: 600,
-          letterSpacing: "0.3px",
-          fontFamily: '"DM Sans", sans-serif',
-          cursor: "pointer",
-          boxShadow:
-            "0 12px 32px rgba(15, 31, 63, 0.35), 0 0 0 1px rgba(15, 31, 63, 0.1)",
-          zIndex: 10,
-        }}
-      >
-        Simulate
-      </button>
+      {!live && (
+        <button
+          onClick={simulateBooking}
+          style={{
+            position: "fixed",
+            bottom: "28px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "14px 28px",
+            background: navy,
+            border: "none",
+            borderRadius: "100px",
+            color: cream,
+            fontSize: "13px",
+            fontWeight: 600,
+            letterSpacing: "0.3px",
+            fontFamily: '"DM Sans", sans-serif',
+            cursor: "pointer",
+            boxShadow:
+              "0 12px 32px rgba(15, 31, 63, 0.35), 0 0 0 1px rgba(15, 31, 63, 0.1)",
+            zIndex: 10,
+          }}
+        >
+          Simulate
+        </button>
+      )}
 
       <style>{`
         @keyframes breathe {
