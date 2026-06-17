@@ -36,6 +36,7 @@ export default function FounderDashboard() {
   const [authMsg, setAuthMsg] = useState("");
   const [loginOpen, setLoginOpen] = useState(false);
   const [email, setEmail] = useState(FOUNDER_EMAIL);
+  const [password, setPassword] = useState("");
 
   const [pulse, setPulse] = useState(false);
   const [displayTotal, setDisplayTotal] = useState(380);
@@ -156,16 +157,14 @@ export default function FounderDashboard() {
     };
   }, []);
 
-  const sendMagicLink = async () => {
-    setAuthMsg("Sending…");
-    const { error } = await supabase.auth.signInWithOtp({
+  const signIn = async () => {
+    setAuthMsg("Signing in…");
+    const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
-      options: {
-        emailRedirectTo: window.location.origin + "/ops",
-        shouldCreateUser: false,
-      },
+      password,
     });
-    setAuthMsg(error ? error.message : "Check your email for the login link.");
+    // On success, onAuthStateChange loads live data and closes this panel.
+    if (error) setAuthMsg(error.message);
   };
 
   const logout = async () => {
@@ -399,14 +398,30 @@ export default function FounderDashboard() {
           >
             Founder login — switch to real revenue
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@email.com"
               style={{
-                flex: 1,
+                minWidth: 0,
+                padding: "9px 12px",
+                borderRadius: "10px",
+                border: `1px solid ${line}`,
+                background: cream,
+                fontSize: "13px",
+                color: navy,
+                fontFamily: '"DM Sans", sans-serif',
+              }}
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && signIn()}
+              placeholder="Password"
+              style={{
                 minWidth: 0,
                 padding: "9px 12px",
                 borderRadius: "10px",
@@ -418,21 +433,20 @@ export default function FounderDashboard() {
               }}
             />
             <button
-              onClick={sendMagicLink}
+              onClick={signIn}
               style={{
-                padding: "9px 14px",
+                padding: "10px 14px",
                 borderRadius: "10px",
                 border: "none",
                 background: navy,
                 color: cream,
-                fontSize: "12px",
+                fontSize: "13px",
                 fontWeight: 600,
                 cursor: "pointer",
-                whiteSpace: "nowrap",
                 fontFamily: '"DM Sans", sans-serif',
               }}
             >
-              Send link
+              Log in
             </button>
           </div>
           {authMsg && (
