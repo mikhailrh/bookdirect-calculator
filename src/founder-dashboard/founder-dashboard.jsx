@@ -82,14 +82,41 @@ export default function FounderDashboard() {
   const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
   const pageBookings = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
-  // Standing trend tiles — cumulative cuts, independent of the toggle.
-  const sumSince = (since) =>
-    bookings.filter((b) => b.createdAt >= since).reduce((s, b) => s + b.commission, 0);
-  const trend = [
-    { label: "This week", value: sumSince(startOf("week")), delta: "+12%" },
-    { label: "This month", value: sumSince(startOf("month")), delta: "+34%" },
-    { label: "YTD", value: sumSince(startOf("year")), delta: "+8%" },
-  ];
+  // Standing trend tiles with REAL period-to-date deltas: this period so far vs
+  // the same window in the previous period. Delta is null (hidden) when there's
+  // no prior-period baseline to compare against.
+  const sumBetween = (start, end) =>
+    bookings
+      .filter((b) => b.createdAt >= start && (end == null || b.createdAt < end))
+      .reduce((s, b) => s + b.commission, 0);
+
+  const prevStart = (p) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    if (p === "week") return startOf("week") - 7 * 86400000;
+    if (p === "month") {
+      d.setDate(1);
+      d.setMonth(d.getMonth() - 1);
+      return d.getTime();
+    }
+    d.setMonth(0, 1);
+    d.setFullYear(d.getFullYear() - 1);
+    return d.getTime();
+  };
+
+  const nowMs = Date.now();
+  const trend = ["week", "month", "year"].map((p, i) => {
+    const curStart = startOf(p);
+    const pStart = prevStart(p);
+    const elapsed = nowMs - curStart;
+    const cur = sumBetween(curStart, null);
+    const prev = sumBetween(pStart, pStart + elapsed);
+    return {
+      label: ["This week", "This month", "YTD"][i],
+      value: cur,
+      delta: prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null,
+    };
+  });
 
   const periodLabel =
     period === "day"
@@ -256,6 +283,7 @@ export default function FounderDashboard() {
   const muted = "#8A7F6E";
   const line = "#E5DAC4";
   const green = "#0F9D58";
+  const red = "#C0392B";
 
   const pagerBtn = (disabled) => ({
     width: "32px",
@@ -742,17 +770,20 @@ export default function FounderDashboard() {
               </span>
               {s.value.toLocaleString("en-MY", { maximumFractionDigits: 0 })}
             </div>
-            <div
-              style={{
-                fontSize: "10px",
-                color: green,
-                fontWeight: 600,
-                fontVariantNumeric: "tabular-nums",
-                marginTop: "2px",
-              }}
-            >
-              {s.delta}
-            </div>
+            {s.delta != null && (
+              <div
+                style={{
+                  fontSize: "10px",
+                  color: s.delta >= 0 ? green : red,
+                  fontWeight: 600,
+                  fontVariantNumeric: "tabular-nums",
+                  marginTop: "2px",
+                }}
+              >
+                {s.delta >= 0 ? "+" : ""}
+                {s.delta}%
+              </div>
+            )}
           </div>
         ))}
       </div>
